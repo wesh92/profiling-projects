@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cpp-math-job
+spec:
+  template:
+    spec:
+      containers:
+        - name: calculator
+          image: cpp-math-app:latest
+          imagePullPolicy: Never
+          env:
+            - name: "MAX_PRIME"
+              value: "1000000"
+      # For a Job, the default restartPolicy is OnFailure, which is what you want.
+      # It will restart the pod if it fails, but not if it exits successfully.
+      restartPolicy: OnFailure

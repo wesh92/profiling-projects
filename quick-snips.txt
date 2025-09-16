@@ -1,0 +1,3 @@
+kubectl delete -f python/python-job.yaml --ignore-not-found && kubectl apply -f python/python-job.yaml
+
+docker build -f ./python/python.dockerfile -t python-logger-app:latest . && docker save python-logger-app:latest -o python/python-logger-app.tar && sudo k3s ctr image import python/python-logger-app.tar && kubectl delete -f python/python-job.yaml --ignore-not-found && kubectl apply -f python/python-job.yaml

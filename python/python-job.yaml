@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: python-logger-job
+spec:
+  template:
+    spec:
+      containers:
+        - name: logger-app
+          image: python-logger-app:latest
+          imagePullPolicy: Never
+          env:
+            # The internal endpoint for your Kafka bootstrap service
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-cluster-kafka-bootstrap.kafka:9092"
+
+            # The topic you want to send messages to
+            - name: KAFKA_TOPIC
+              value: "performance-metrics"
+
+            # A unique ID for this specific job run
+            - name: RUN_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      restartPolicy: OnFailure
+  # Automatically cleans up the Job and Pod 10 minutes after it finishes
+  ttlSecondsAfterFinished: 600
