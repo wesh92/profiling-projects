@@ -7,6 +7,9 @@ kubectl -n kubernetes-dashboard create token admin-user
 helm upgrade --install vector-b vector/vector -n vector -f vector/vector-values.yaml
 
 
+# grafana password
+kubectl get secret --namespace lgtm lgtm-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
 
 # forwards
 nohup kubectl port-forward --namespace lgtm service/lgtm-grafana 8080:80 &
