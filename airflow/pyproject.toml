@@ -7,6 +7,11 @@ dependencies = [
     "apache-airflow-providers-cncf-kubernetes>=10.5.0",
     "openfga-sdk>=0.9.5",
     "apache-airflow-providers-celery>=3.3.0",
+    "kafka-python>=2.2.15",
+    "nvidia-ml-py>=13.580.82",
+    "psutil>=7.0.0",
+    "psycopg2-binary>=2.9.10",
+    "kubernetes>=32.0.0",
 ]
 
 [dependency-groups]

@@ -6,19 +6,9 @@ from airflow.sdk import dag, task
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from src.profile import Profile
+from kubernetes.client import models as k8s
 
 profile = Profile()
-
-# A small C program to be executed.
-# Note the escaped newline character '\\n' for proper printing.
-C_CODE_STRING = """
-#include <stdio.h>
-
-int main() {
-    printf("Hello from a C program running in Airflow!\\n");
-    return 0;
-}
-"""
 
 @dag(
     dag_id="c_code_execution_dag",
@@ -55,10 +45,10 @@ def c_k8s_example():
                 "MAX_PRIME": "1500000"
             },
             # Optional: Define resource requests and limits for the pod
-            resources={
-                "requests": {"cpu": "1", "memory": "256Mi"},
-                "limits": {"cpu": "2", "memory": "512Mi"},
-            },
+            container_resources=k8s.V1ResourceRequirements(
+                    requests={"cpu": "100m", "memory": "64Mi", "ephemeral-storage": "1Gi"},
+                    limits={"cpu": "200m", "memory": "420Mi", "ephemeral-storage": "2Gi"},
+                ),
         )
         # We must manually call execute() when wrapping an operator in a TaskFlow task
         kpo.execute(context=kwargs)
