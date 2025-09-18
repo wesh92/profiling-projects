@@ -13,6 +13,13 @@ try:
 except Exception:
     GPU_ENABLED = False
 
+try:
+    import memray
+    from memray.reporters import SummaryReporter
+    MEMRAY_ENABLED = True
+except ImportError:
+    MEMRAY_ENABLED = False
+
 class Profile:
     """
     A class-based decorator to log, profile, and optionally send metrics to Kafka.
