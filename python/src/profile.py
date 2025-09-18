@@ -5,21 +5,11 @@ import json
 from functools import wraps
 from datetime import datetime, timezone
 import psutil
+import tracemalloc
+import cProfile
+import pstats
 import io
 
-# --- Conditional Memray Import ---
-try:
-    import memray
-    # Corrected import path for SummaryReporter
-    from memray.reporters.summary import SummaryReporter
-    MEMRAY_ENABLED = True
-except ImportError:
-    MEMRAY_ENABLED = False
-    # Define dummy classes if memray is not installed to avoid errors
-    class SummaryReporter:
-        pass
-
-# --- GPU Setup ---
 try:
     import pynvml
     pynvml.nvmlInit()
@@ -30,20 +20,28 @@ except Exception:
 class Profile:
     """
     A class-based decorator to log, profile, and optionally send metrics to Kafka.
+    It now includes optional deep profiling with cProfile and tracemalloc.
     It maintains a singleton Kafka producer instance to avoid reconnecting.
     """
     _kafka_producer = None
     _kafka_initialized = False
 
-    def __init__(self, kafka_logging=True, memray_tracking=False):
-        self.kafka_logging = kafka_logging
-        self.memray_tracking = memray_tracking and MEMRAY_ENABLED
+    def __init__(self, kafka_logging=True, tracemalloc_enabled=False, cprofile_enabled=False):
+        """
+        Initializes the profiler decorator.
 
+        Args:
+            kafka_logging (bool): Enable/disable sending metrics to Kafka.
+            tracemalloc_enabled (bool): Enable/disable tracemalloc for memory profiling.
+            cprofile_enabled (bool): Enable/disable cProfile for function time profiling.
+        """
+        self.kafka_logging = kafka_logging
+        self.tracemalloc_enabled = tracemalloc_enabled
+        self.cprofile_enabled = cprofile_enabled
+
+        # Initialize Kafka producer only on the first instantiation that requires it.
         if self.kafka_logging and not Profile._kafka_initialized:
             self._init_kafka_producer()
-
-        if self.memray_tracking and not MEMRAY_ENABLED:
-            print("🔴 Memray tracking requested, but the 'memray' package is not installed.", file=sys.stderr)
 
     def _init_kafka_producer(self):
         """Initializes the Kafka producer using environment variables."""
@@ -74,6 +72,8 @@ class Profile:
         @wraps(func)
         def wrapper(*args, **kwargs):
             print(f"▶️  [START] Running step: '{func.__name__}'...")
+
+            # --- Standard Profiling Setup ---
             proc = psutil.Process(os.getpid())
             cpu_start = proc.cpu_times()
             mem_start = proc.memory_info()
@@ -86,23 +86,44 @@ class Profile:
                 except Exception:
                     pass
 
-            memray_summary = None
+            # --- Deep Profiling Setup ---
+            if self.tracemalloc_enabled:
+                if not tracemalloc.is_tracing():
+                    tracemalloc.start()
+                tracemalloc_start_snapshot = tracemalloc.take_snapshot()
+
+            if self.cprofile_enabled:
+                profiler = cProfile.Profile()
+                profiler.enable()
+
+            # --- Execute Function ---
             start_time = time.monotonic()
-
-            if self.memray_tracking:
-                print("🧠 [MEMRAY] Starting memory tracking...")
-                report_stream = io.StringIO()
-                # Use an in-memory stream to avoid writing to disk
-                with memray.Tracker(file_obj=io.BytesIO(), native_traces=True) as tracker:
-                    result = func(*args, **kwargs)
-                    reporter = SummaryReporter.from_snapshot(tracker.get_snapshot())
-                    reporter.render(file=report_stream)
-                    memray_summary = report_stream.getvalue()
-                print("🧠 [MEMRAY] Finished memory tracking.")
-            else:
-                result = func(*args, **kwargs)
-
+            result = func(*args, **kwargs)
             end_time = time.monotonic()
+
+            # --- Deep Profiling Capture & Report ---
+            cprofile_stats_str = None
+            if self.cprofile_enabled:
+                profiler.disable()
+                s = io.StringIO()
+                ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
+                ps.print_stats(15) # Report top 15 functions by cumulative time
+                cprofile_stats_str = s.getvalue()
+                print(f"\n--- cProfile for '{func.__name__}' (top 15) ---")
+                print(cprofile_stats_str)
+                print("------------------------------------------\n")
+
+            tracemalloc_stats_list = None
+            if self.tracemalloc_enabled:
+                tracemalloc_end_snapshot = tracemalloc.take_snapshot()
+                top_stats = tracemalloc_end_snapshot.compare_to(tracemalloc_start_snapshot, 'lineno')
+                tracemalloc_stats_list = [str(s) for s in top_stats[:10]]
+                print(f"--- tracemalloc for '{func.__name__}' (top 10 diffs) ---")
+                for stat in tracemalloc_stats_list:
+                    print(stat)
+                print("-------------------------------------------------\n")
+
+            # --- Standard Profiling Capture ---
             duration = end_time - start_time
             cpu_end, mem_end, net_end = proc.cpu_times(), proc.memory_info(), psutil.net_io_counters()
             cpu_delta = (cpu_end.user - cpu_start.user) + (cpu_end.system - cpu_start.system)
@@ -116,6 +137,7 @@ class Profile:
 
             print(f"✅ [DONE]  Finished step: '{func.__name__}'. Took {duration:.4f} seconds.")
 
+            # --- Kafka Logging ---
             if self.kafka_logging and Profile._kafka_producer:
                 task_instance = kwargs.get('ti') or kwargs.get('task_instance')
                 if task_instance:
@@ -125,17 +147,24 @@ class Profile:
                     namespace = os.getenv("NAMESPACE", "unknown")
                     step_name = func.__name__
 
+                topic = os.getenv("KAFKA_TOPIC", "performance-metrics")
                 payload = {
                     "time": datetime.now(timezone.utc).isoformat(),
                     "run_id": run_id, "namespace": namespace, "step_name": step_name,
                     "duration_s": duration, "cpu_time_s": cpu_delta,
                     "mem_change_bytes": mem_delta, "net_sent_bytes": net_delta_sent,
-                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta,
-                    "memray_summary": memray_summary,
+                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta
                 }
+
+                # Add deep profiling metrics if they were captured
+                if cprofile_stats_str:
+                    payload['cprofile_stats'] = cprofile_stats_str
+                if tracemalloc_stats_list:
+                    payload['tracemalloc_top_10_diff'] = tracemalloc_stats_list
+
                 try:
                     key = f"{payload['namespace']}:{payload['run_id']}:{payload['step_name']}".encode('utf-8')
-                    Profile._kafka_producer.send(topic=os.getenv("KAFKA_TOPIC", "performance-metrics"), value=payload, key=key)
+                    Profile._kafka_producer.send(topic, value=payload, key=key)
                 except Exception as e:
                     print(f"🔴 Failed to send message to Kafka: {e}", file=sys.stderr)
 

@@ -8,7 +8,7 @@ from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperato
 from src.profile import Profile
 from kubernetes.client import models as k8s
 
-profile = Profile()
+profile = Profile(cprofile_enabled=True, tracemalloc_enabled=True)
 
 @dag(
     dag_id="c_code_execution_dag",
