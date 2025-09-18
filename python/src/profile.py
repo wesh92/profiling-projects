@@ -5,20 +5,27 @@ import json
 from functools import wraps
 from datetime import datetime, timezone
 import psutil
+import io
 
+# --- Conditional Memray Import ---
+try:
+    import memray
+    # Corrected import path for SummaryReporter
+    from memray.reporters.summary import SummaryReporter
+    MEMRAY_ENABLED = True
+except ImportError:
+    MEMRAY_ENABLED = False
+    # Define dummy classes if memray is not installed to avoid errors
+    class SummaryReporter:
+        pass
+
+# --- GPU Setup ---
 try:
     import pynvml
     pynvml.nvmlInit()
     GPU_ENABLED = True
 except Exception:
     GPU_ENABLED = False
-
-try:
-    import memray
-    from memray.reporters import SummaryReporter
-    MEMRAY_ENABLED = True
-except ImportError:
-    MEMRAY_ENABLED = False
 
 class Profile:
     """
@@ -28,12 +35,15 @@ class Profile:
     _kafka_producer = None
     _kafka_initialized = False
 
-    def __init__(self, kafka_logging=True):
+    def __init__(self, kafka_logging=True, memray_tracking=False):
         self.kafka_logging = kafka_logging
-        # Initialize Kafka producer only on the first instantiation
-        # that requires it.
+        self.memray_tracking = memray_tracking and MEMRAY_ENABLED
+
         if self.kafka_logging and not Profile._kafka_initialized:
             self._init_kafka_producer()
+
+        if self.memray_tracking and not MEMRAY_ENABLED:
+            print("🔴 Memray tracking requested, but the 'memray' package is not installed.", file=sys.stderr)
 
     def _init_kafka_producer(self):
         """Initializes the Kafka producer using environment variables."""
@@ -76,10 +86,23 @@ class Profile:
                 except Exception:
                     pass
 
+            memray_summary = None
             start_time = time.monotonic()
-            result = func(*args, **kwargs)
-            end_time = time.monotonic()
 
+            if self.memray_tracking:
+                print("🧠 [MEMRAY] Starting memory tracking...")
+                report_stream = io.StringIO()
+                # Use an in-memory stream to avoid writing to disk
+                with memray.Tracker(file_obj=io.BytesIO(), native_traces=True) as tracker:
+                    result = func(*args, **kwargs)
+                    reporter = SummaryReporter.from_snapshot(tracker.get_snapshot())
+                    reporter.render(file=report_stream)
+                    memray_summary = report_stream.getvalue()
+                print("🧠 [MEMRAY] Finished memory tracking.")
+            else:
+                result = func(*args, **kwargs)
+
+            end_time = time.monotonic()
             duration = end_time - start_time
             cpu_end, mem_end, net_end = proc.cpu_times(), proc.memory_info(), psutil.net_io_counters()
             cpu_delta = (cpu_end.user - cpu_start.user) + (cpu_end.system - cpu_start.system)
@@ -102,18 +125,19 @@ class Profile:
                     namespace = os.getenv("NAMESPACE", "unknown")
                     step_name = func.__name__
 
-                topic = os.getenv("KAFKA_TOPIC", "performance-metrics")
                 payload = {
                     "time": datetime.now(timezone.utc).isoformat(),
                     "run_id": run_id, "namespace": namespace, "step_name": step_name,
                     "duration_s": duration, "cpu_time_s": cpu_delta,
                     "mem_change_bytes": mem_delta, "net_sent_bytes": net_delta_sent,
-                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta
+                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta,
+                    "memray_summary": memray_summary,
                 }
                 try:
                     key = f"{payload['namespace']}:{payload['run_id']}:{payload['step_name']}".encode('utf-8')
-                    Profile._kafka_producer.send(topic, value=payload, key=key)
+                    Profile._kafka_producer.send(topic=os.getenv("KAFKA_TOPIC", "performance-metrics"), value=payload, key=key)
                 except Exception as e:
                     print(f"🔴 Failed to send message to Kafka: {e}", file=sys.stderr)
+
             return result
         return wrapper
