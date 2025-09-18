@@ -8,6 +8,7 @@ WORKDIR /build
 COPY ./pyproject.toml .
 RUN uv pip compile pyproject.toml
 
+COPY ./src/ .
 COPY ./python/timing_test.py .
 
 CMD ["uv", "run", "timing_test.py"]

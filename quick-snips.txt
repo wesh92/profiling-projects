@@ -18,3 +18,7 @@ helm upgrade --install grafana-agent grafana-agent -f grafana/grafana-agent-valu
 nohup kubectl port-forward --namespace lgtm service/lgtm-grafana 8080:80 &
 
 nohup kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443 &
+
+
+# build docker image
+docker build -f ./python/python.dockerfile -t python-logger-app:latest .
