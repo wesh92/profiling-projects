@@ -1,3 +1,14 @@
 kubectl delete -f python/python-job.yaml --ignore-not-found && kubectl apply -f python/python-job.yaml
 
 docker build -f ./python/python.dockerfile -t python-logger-app:latest . && docker save python-logger-app:latest -o python/python-logger-app.tar && sudo k3s ctr image import python/python-logger-app.tar && kubectl delete -f python/python-job.yaml --ignore-not-found && kubectl apply -f python/python-job.yaml
+
+kubectl -n kubernetes-dashboard create token admin-user
+
+helm upgrade --install vector-b vector/vector -n vector -f vector/vector-values.yaml
+
+
+
+# forwards
+nohup kubectl port-forward --namespace lgtm service/lgtm-grafana 8080:80 &
+
+nohup kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443 &

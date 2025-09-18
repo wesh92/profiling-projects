@@ -1,0 +1,123 @@
+---
+mounts:
+  varlog: true
+  dockercontainers: true
+agent:
+  configMap:
+    content: |
+      discovery.kubernetes "all_pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "all_pods" {
+        targets = discovery.kubernetes.all_pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_controller_name"]
+          target_label = "controller"
+        }
+      }
+
+      loki.source.kubernetes "all_pods" {
+        targets = discovery.relabel.all_pods.output
+        forward_to = [loki.process.all_pods.receiver]
+      }
+
+      loki.process "all_pods" {
+        forward_to = [loki.write.loki.receiver]
+
+        stage.cri {}
+      }
+
+      loki.source.journal "read" {
+        forward_to = [loki.relabel.journal.receiver]
+      }
+
+      loki.relabel "journal" {
+        forward_to = [loki.write.loki.receiver]
+        rule {
+          source_labels = ["__journal__systemd_unit"]
+          target_label = "unit"
+        }
+      }
+
+      loki.source.kubernetes_events "events" {
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      loki.write "loki" {
+        external_labels = {
+          cluster = "loutretel",
+        }
+        endpoint {
+          url = "http://lgtm-stack-loki-distributor:3100/loki/api/v1/push"
+        }
+      }
+
+      discovery.kubernetes "all_nodes" {
+        role = "node"
+      }
+
+      discovery.relabel "all_nodes" {
+        targets = discovery.kubernetes.all_nodes.targets
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label = "node"
+        }
+      }
+
+      prometheus.scrape "kubelet" {
+        targets = discovery.relabel.all_nodes.output
+        forward_to = [prometheus.remote_write.mimir.receiver]
+
+        scrape_interval = "15s"
+        metrics_path = "/metrics"
+        scheme = "https"
+
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        }
+      }
+
+      prometheus.scrape "default" {
+        // Tell the scraper to scrape at http://localhost:12345/metrics.
+        // The http:// and metrics are implied but able to be overwritten.
+        targets = [{"__address__" = "localhost:12345"}]
+        // Forward the scrape results to the receiver. In general,
+        // Flow uses forward_to to tell which receiver to send results to.
+        // The forward_to is an argument of prometheus.scrape.default and
+        // the receiver is an exported field of prometheus.remote_write.prom.
+        forward_to = [prometheus.remote_write.prom.receiver]
+      }
+
+      prometheus.exporter.unix {
+        procfs_path = "/host/proc"
+        sysfs_path = "/host/sys"
+        rootfs_path = "/host/root"
+      }
+
+      discovery.kubernetes "all_services" {
+        role = "service"
+      }
+
+      prometheus.remote_write "mimir" {
+        endpoint {
+          url = "http://lgtm-stack-mimir-distributor:8080/api/v1/push"
+
+          headers = {
+            X-Scope-OrgID: "fake"
+          }
+        }
+      }

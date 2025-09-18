@@ -90,6 +90,7 @@ def log_step(func):
             payload = {
                 "time": datetime.now(timezone.utc).isoformat(),
                 "run_id": os.getenv("RUN_ID", "local_run"),
+                "namespace": os.getenv("NAMESPACE", "unknown"),
                 "step_name": func.__name__,
                 "duration_s": duration,
                 "cpu_time_s": cpu_delta,
