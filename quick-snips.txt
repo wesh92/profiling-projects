@@ -19,6 +19,41 @@ nohup kubectl port-forward --namespace lgtm service/lgtm-grafana 8080:80 &
 
 nohup kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443 &
 
+nohup kubectl port-forward svc/airflow-api-server 8085:8085 --namespace airflow &
+
 
 # build docker image
 docker build -f ./python/python.dockerfile -t python-logger-app:latest .
+
+# airflow
+docker build -f ./airflow/Dockerfile -t local-airflow:latest . && docker save local-airflow:latest -o airflow/local-airflow.tar && sudo k3s ctr image import airflow/local-airflow.tar
+
+sudo k3s kubectl create namespace $AIRFLOW_NAMESPACE --dry-run=client -o yaml | sudo k3s kubectl apply -f -
+
+helm upgrade --install $AIRFLOW_HELM_RELEASE_NAME apache-airflow/airflow \
+    --namespace $AIRFLOW_NAMESPACE \
+    --values ./airflow/airflow-values.yaml
+
+# ssh key to k3s
+
+kubectl create secret generic airflow-git-ssh-secret \
+    --namespace airflow \
+    --from-file=gitSshKey=$SSH_KEY_PATH \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+# update with known hosts
+# Create a temporary known_hosts file with GitHub's SSH keys
+set -l temp_known_hosts (mktemp)
+
+# Get GitHub's SSH keys
+ssh-keyscan -t rsa,ed25519 github.com > $temp_known_hosts 2>/dev/null
+kubectl create secret generic airflow-git-ssh-secret \
+    --namespace $AIRFLOW_NAMESPACE \
+    --from-file=gitSshKey=(kubectl get secret airflow-git-ssh-secret -n $AIRFLOW_NAMESPACE -o jsonpath='{.data.gitSshKey}' | base64 -d | psub) \
+    --from-file=known_hosts=$temp_known_hosts \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+
+# create airflow postgres secret. pointing to our local tsdb here...
+
+kubectl create secret generic mydatabase --from-literal=connection=postgresql://postgres:postgres@timescaledb.timescale.svc.cluster.local:5450/postgres

@@ -126,3 +126,89 @@ function proxy_with_cleanup
     # Store the PID
     echo $last_pid > /tmp/k8s-proxy-logs/$log_name.pid
 end
+
+
+
+# --- SSH Key Management Functions ---
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   setup_git_ssh_key
+#
+#   Creates a Kubernetes secret containing the SSH key for git-sync to access
+#   the private repository. This function will prompt for the SSH key path if
+#   not provided.
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function setup_git_ssh_key
+    set -l ssh_key_path $argv[1]
+
+    # If no path provided, try common locations
+    if test -z "$ssh_key_path"
+        if test -f ~/.ssh/id_rsa
+            set ssh_key_path ~/.ssh/id_rsa
+            _log "INFO" "Using default SSH key: $ssh_key_path"
+        else if test -f ~/.ssh/id_ed25519
+            set ssh_key_path ~/.ssh/id_ed25519
+            _log "INFO" "Using default SSH key: $ssh_key_path"
+        else
+            _log "ERROR" "No SSH key found. Please provide path as argument."
+            _log "INFO" "Usage: setup_git_ssh_key /path/to/ssh/key"
+            return 1
+        end
+    end
+
+    # Verify the SSH key exists
+    if not test -f "$ssh_key_path"
+        _log "ERROR" "SSH key not found at: $ssh_key_path"
+        return 1
+    end
+
+    _log "INFO" "Creating SSH secret for git-sync in Airflow namespace..."
+
+    # Create the secret
+    kubectl create secret generic airflow-git-ssh-secret \
+        --namespace $AIRFLOW_NAMESPACE \
+        --from-file=gitSshKey=$ssh_key_path \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+    if test $status -eq 0
+        _log "INFO" "SSH secret 'airflow-git-ssh-secret' created successfully"
+
+        # Also add known hosts to avoid SSH host key verification issues
+        setup_git_known_hosts
+    else
+        _log "ERROR" "Failed to create SSH secret"
+        return 1
+    end
+end
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   setup_git_known_hosts
+#
+#   Creates or updates the known_hosts entry for GitHub in the git-sync secret.
+#   This prevents SSH host key verification failures.
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function setup_git_known_hosts
+    _log "INFO" "Setting up GitHub known hosts..."
+
+    # Create a temporary known_hosts file with GitHub's SSH keys
+    set -l temp_known_hosts (mktemp)
+
+    # Get GitHub's SSH keys
+    ssh-keyscan -t rsa,ed25519 github.com > $temp_known_hosts 2>/dev/null
+
+    if test -s $temp_known_hosts
+        # Update the existing secret to include known_hosts
+        kubectl create secret generic airflow-git-ssh-secret \
+            --namespace $AIRFLOW_NAMESPACE \
+            --from-file=gitSshKey=(kubectl get secret airflow-git-ssh-secret -n $AIRFLOW_NAMESPACE -o jsonpath='{.data.gitSshKey}' | base64 -d | psub) \
+            --from-file=known_hosts=$temp_known_hosts \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+        _log "INFO" "GitHub known hosts added to secret"
+    else
+        _log "WARN" "Could not fetch GitHub SSH keys. You may need to add them manually."
+    end
+
+    # Clean up
+    rm -f $temp_known_hosts
+end

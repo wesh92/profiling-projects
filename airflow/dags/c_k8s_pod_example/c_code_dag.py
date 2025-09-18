@@ -5,6 +5,9 @@ import pendulum
 from airflow.models.dag import dag
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from src.profile import Profile
+
+profile = Profile()
 
 # A small C program to be executed.
 # Note the escaped newline character '\\n' for proper printing.
@@ -24,6 +27,7 @@ int main() {
     schedule=None,
     tags=["kubernetes", "c-code", "example"],
 )
+@profile
 def c_k8s_example():
     start = EmptyOperator(task_id="start")
     end = EmptyOperator(task_id="end")

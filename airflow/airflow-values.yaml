@@ -13,10 +13,10 @@ dags:
   gitSync:
     enabled: true
     # Using SSH URL for private repo
-    repo: "git@github.com:wesh92/private-k8s-systems.git"
-    branch: "main"
+    repo: "git@github.com:wesh92/profiling-projects.git"
+    branch: "master"
     # Your DAGs are in this subdirectory
-    subPath: "k8s-defaults/airflow/dags"
+    subPath: "airflow/dags"
     # Reference to the SSH key secret
     sshKeySecret: airflow-git-ssh-secret
     # Wait 60 seconds between syncs
@@ -37,6 +37,12 @@ images:
     repository: local-airflow
     tag: latest
     pullPolicy: IfNotPresent
+
+postgresql:
+  enabled: false
+
+data:
+  metadataSecretName: mydatabase
 
 # Port configurations
 ports:
@@ -65,6 +71,13 @@ env:
     value: "kubernetes://"
   - name: "AIRFLOW_CONN_KAFKA_DEFAULT"
     value: "kafka:///?bootstrap.servers=my-cluster-kafka-bootstrap.kafka%3A9092&group.id=group_1&security.protocol=PLAINTEXT&auto.offset.reset=beginning"
+  # The internal endpoint for your Kafka bootstrap service
+  - name: KAFKA_BOOTSTRAP_SERVERS
+    value: "my-cluster-kafka-bootstrap.kafka:9092"
+
+  # The topic you want to send messages to
+  - name: KAFKA_TOPIC
+    value: "performance-metrics"
 
 # API Server configuration
 apiServer:
