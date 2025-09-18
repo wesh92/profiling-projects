@@ -2,6 +2,10 @@
 mounts:
   varlog: true
   dockercontainers: true
+persistence:
+  enabled: true
+  type: pvc
+  existingClaim: "grafana-pvc"
 agent:
   configMap:
     content: |

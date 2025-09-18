@@ -100,7 +100,8 @@ def log_step(func):
                 "gpu_mem_change_bytes": gpu_mem_delta
             }
             try:
-                kafka_producer.send(topic, value=payload)
+                key = f"{payload["namespace"]}:{payload['run_id']}:{payload['step_name']}"
+                kafka_producer.send(topic, value=payload, key=key)
             except Exception as e:
                 print(f"🔴 Failed to send message to Kafka: {e}", file=sys.stderr)
         return result

@@ -10,6 +10,9 @@ helm upgrade --install vector-b vector/vector -n vector -f vector/vector-values.
 # grafana password
 kubectl get secret --namespace lgtm lgtm-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
 
+# grafana updates
+helm upgrade --install grafana-agent grafana-agent -f grafana/grafana-agent-values.yaml --repo https://grafana.github.io/helm-charts
+
 
 # forwards
 nohup kubectl port-forward --namespace lgtm service/lgtm-grafana 8080:80 &
