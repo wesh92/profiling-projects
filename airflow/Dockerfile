@@ -16,6 +16,7 @@ RUN uv pip compile pyproject.toml \
 
 # Final stage
 FROM apache/airflow:3.0.2-python3.12
+ENV PYTHONPATH="/opt/airflow/dags/repo/airflow:/opt/airflow/dags:${PYTHONPATH}"
 USER root
 COPY --from=builder /build/requirements.txt /
 COPY ./src /opt/airflow/dags/repo/airflow

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pendulum
 
-from airflow.models.dag import dag
+from airflow.models.dag import dag,task
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from src.profile import Profile
@@ -31,46 +31,39 @@ int main() {
 def c_k8s_example():
     start = EmptyOperator(task_id="start")
     end = EmptyOperator(task_id="end")
-    # This task launches a pod with the 'gcc' image, which contains a C compiler.
-    # It then writes, compiles, and runs the C code defined above.
-    compile_and_run_c_code = KubernetesPodOperator(
-        task_id="compile_and_run_c_code",
-        # The pod will be created in the same namespace as Airflow.
-        namespace="airflow",
-        # Use an official image that includes the GCC C compiler.
-        image="gcc:latest",
-        # Name for the pod that will be created.
-        name="c-code-execution-pod",
-        # These commands are executed sequentially in a shell inside the pod.
-        cmds=["/bin/bash", "-c"],
-        arguments=[
-            """
-            echo "--- Writing C code to file ---"
-            # The C code is passed as an environment variable by Airflow.
-            # We write it to a file named hello.c.
-            echo "$C_CODE" > hello.c
 
-            echo "--- Compiling C code ---"
-            # Use gcc to compile the source code into an executable named 'hello_app'.
-            # The '-o' flag specifies the output file name.
-            gcc hello.c -o hello_app
+    @task
+    @profile
+    def run_cpu_intensive_pod(**kwargs):
+        """
+        Launches a KubernetesPodOperator to run the CPU-intensive prime number calculator.
+        The `@profile` decorator will capture the metrics of this Airflow task itself.
+        """
+        # This operator will create a pod that runs the C++ prime calculator.
+        kpo = KubernetesPodOperator(
+            task_id="prime_calculator_pod",
+            # Ensure this namespace is correct for your Airflow deployment
+            namespace="airflow",
+            image="cpp-math-app:latest",
+            image_pull_policy="Never",
+            name="cpu-intensive-pod",
+            do_xcom_push=False,
+            log_events_on_failure=True,
+            env_vars={
+                # Adjust this value to make the task run longer or shorter.
+                # 1,500,000 should take < 1 minute on modern hardware.
+                "MAX_PRIME": "1500000"
+            },
+            # Optional: Define resource requests and limits for the pod
+            resources={
+                "requests": {"cpu": "1", "memory": "256Mi"},
+                "limits": {"cpu": "2", "memory": "512Mi"},
+            },
+        )
+        # We must manually call execute() when wrapping an operator in a TaskFlow task
+        kpo.execute(context=kwargs)
 
-            echo "--- Running compiled C code ---"
-            # Execute the compiled binary. Its output will appear in the task logs.
-            ./hello_app
-
-            echo "--- C code execution finished ---"
-            """
-        ],
-        # Pass the C code string into the pod as an environment variable.
-        # This is a clean way to inject scripts or code into the operator.
-        env_vars={"C_CODE": C_CODE_STRING},
-        # Defines what happens to the pod after the task finishes.
-        # 'on_success': pod is deleted automatically if the task succeeds.
-        do_xcom_push=True,
-        # Log all events from the Kubernetes pod to the Airflow task logs.
-        log_events_on_failure=True,
-    )
-    start >> compile_and_run_c_code >> end
+    run_pod = run_cpu_intensive_pod()
+    start >> run_pod >> end
 
 dag = c_k8s_example()
