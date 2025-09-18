@@ -26,7 +26,7 @@ nohup kubectl port-forward svc/airflow-api-server 8085:8085 --namespace airflow 
 docker build -f ./python/python.dockerfile -t python-logger-app:latest .
 
 # airflow
-docker build -f ./airflow/Dockerfile -t local-airflow:latest . && docker save local-airflow:latest -o airflow/local-airflow.tar && sudo k3s ctr image import airflow/local-airflow.tar
+docker build -f ./airflow/Dockerfile -t local-airflow:$AIRFLOW_LOCAL_VERSION . && docker save local-airflow:$AIRFLOW_LOCAL_VERSION -o airflow/local-airflow.tar && sudo k3s ctr image import airflow/local-airflow.tar
 
 sudo k3s kubectl create namespace $AIRFLOW_NAMESPACE --dry-run=client -o yaml | sudo k3s kubectl apply -f -
 
@@ -57,3 +57,6 @@ kubectl create secret generic airflow-git-ssh-secret \
 # create airflow postgres secret. pointing to our local tsdb here...
 
 kubectl create secret generic mydatabase --from-literal=connection=postgresql://postgres:postgres@timescaledb.timescale.svc.cluster.local:5450/postgres
+
+# rollout new nodes
+kubectl rollout restart deployment airflow-scheduler -n airflow && kubectl rollout restart deployment airflow-api-server -n airflow && kubectl rollout restart deployment airflow-dag-processor -n airflow && kubectl rollout restart statefulset airflow-worker -n airflow

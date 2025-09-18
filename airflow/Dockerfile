@@ -18,6 +18,6 @@ RUN uv pip compile pyproject.toml \
 FROM apache/airflow:3.0.2-python3.12
 USER root
 COPY --from=builder /build/requirements.txt /
-COPY ./src /
+COPY ./src /opt/airflow/dags/repo/airflow
 USER airflow
 RUN pip install --no-cache-dir -r /requirements.txt
