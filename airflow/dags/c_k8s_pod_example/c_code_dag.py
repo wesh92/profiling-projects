@@ -17,7 +17,6 @@ profile = Profile(cprofile_enabled=True, tracemalloc_enabled=True)
     schedule=None,
     tags=["kubernetes", "c-code", "example"],
 )
-@profile
 def c_k8s_example():
     start = EmptyOperator(task_id="start")
     end = EmptyOperator(task_id="end")
