@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pendulum
 
-from airflow.sdk import dag, task
+from airflow.sdk import dag
 from airflow.providers.standard.operators.empty import EmptyOperator
 from src.local.kubernetes.operators.pod import ProfiledKubernetesPodOperator as KubernetesPodOperator
 from src.profile import Profile

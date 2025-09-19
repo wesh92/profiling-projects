@@ -11,6 +11,8 @@ import pstats
 import io
 from logging import log, INFO, WARNING
 from typing import TypeVar, ParamSpec, Callable
+import threading
+import asyncio
 
 try:
     import pynvml
@@ -31,7 +33,7 @@ class Profile:
     _kafka_producer = None
     _kafka_initialized = False
 
-    def __init__(self, kafka_logging=True, tracemalloc_enabled=False, cprofile_enabled=False):
+    def __init__(self, kafka_logging=True, tracemalloc_enabled=False, cprofile_enabled=False, track_async=True):
         """
         Initializes the profiler decorator.
 
@@ -39,10 +41,12 @@ class Profile:
             kafka_logging (bool): Enable/disable sending metrics to Kafka.
             tracemalloc_enabled (bool): Enable/disable tracemalloc for memory profiling.
             cprofile_enabled (bool): Enable/disable cProfile for function time profiling.
+            track_async (bool): Enable/disable tracking of async threads and tasks.
         """
         self.kafka_logging = kafka_logging
         self.tracemalloc_enabled = tracemalloc_enabled
         self.cprofile_enabled = cprofile_enabled
+        self.track_async = track_async
 
         # Initialize Kafka producer only on the first instantiation that requires it.
         if self.kafka_logging and not Profile._kafka_initialized:
@@ -73,6 +77,14 @@ class Profile:
         finally:
             Profile._kafka_initialized = True
 
+    def _get_thread_stats(self):
+        """Collect thread statistics"""
+        return {
+            "active_threads": threading.active_count(),
+            "thread_names": [t.name for t in threading.enumerate()],
+            "async_tasks": len(asyncio.all_tasks()) if asyncio._get_running_loop() else 0
+        }
+
     def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -80,6 +92,7 @@ class Profile:
 
             # Profiling Setup
             proc = psutil.Process(os.getpid())
+            thread_start = self._get_thread_stats() if self.track_async else {"active_threads":0}
             cpu_start = proc.cpu_times()
             mem_start = proc.memory_info()
             net_start = psutil.net_io_counters()
@@ -92,6 +105,15 @@ class Profile:
                     pass
 
             # Deep Profiling Setup
+            async_thread_metrics = None
+            if self.track_async:
+                thread_end = self._get_thread_stats()
+                async_thread_metrics = {
+                    "threads_created": thread_end["active_threads"] - thread_start["active_threads"],
+                    "final_thread_count": thread_end["active_threads"],
+                    "total_async_tasks": max(thread_end["async_tasks"], thread_start["async_tasks"])
+                }
+
             if self.tracemalloc_enabled:
                 if not tracemalloc.is_tracing():
                     tracemalloc.start()
@@ -167,6 +189,8 @@ class Profile:
                     payload['deep_profiling_data']['cprofile_stats'] = cprofile_stats_str
                 if tracemalloc_stats_list:
                     payload['deep_profiling_data']['tracemalloc_top_10_diff'] = tracemalloc_stats_list
+                if async_thread_metrics:
+                    payload['deep_profiling_data']["async_thread_stats"] = async_thread_metrics
 
                 try:
                     key = f"{payload['namespace']}:{payload['run_id']}:{payload['step_name']}".encode('utf-8')
