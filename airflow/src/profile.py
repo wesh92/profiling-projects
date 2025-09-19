@@ -20,7 +20,6 @@ except Exception:
 class Profile:
     """
     A class-based decorator to log, profile, and optionally send metrics to Kafka.
-    It now includes optional deep profiling with cProfile and tracemalloc.
     It maintains a singleton Kafka producer instance to avoid reconnecting.
     """
     _kafka_producer = None
