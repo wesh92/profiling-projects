@@ -4,7 +4,7 @@ import pendulum
 
 from airflow.sdk import dag, task
 from airflow.providers.standard.operators.empty import EmptyOperator
-from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+from src.local.kubernetes.operators.pod import ProfiledKubernetesPodOperator as KubernetesPodOperator
 from src.profile import Profile
 from kubernetes.client import models as k8s
 

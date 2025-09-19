@@ -9,6 +9,8 @@ import tracemalloc
 import cProfile
 import pstats
 import io
+from logging import log, INFO, WARNING
+from typing import TypeVar, ParamSpec, Callable
 
 try:
     import pynvml
@@ -16,6 +18,10 @@ try:
     GPU_ENABLED = True
 except Exception:
     GPU_ENABLED = False
+
+# Define generic type variables to preserve function signatures
+P = ParamSpec("P")
+R = TypeVar("R")
 
 class Profile:
     """
@@ -49,7 +55,7 @@ class Profile:
 
         bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS")
         if not bootstrap_servers:
-            print("🔴 KAFKA_BOOTSTRAP_SERVERS env var not set. Kafka producer disabled.", file=sys.stderr)
+            log(WARNING, "🔴 KAFKA_BOOTSTRAP_SERVERS env var not set. Kafka producer disabled.")
             Profile._kafka_initialized = True
             return
 
@@ -60,19 +66,19 @@ class Profile:
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 retries=3
             )
-            print(f"📦 Successfully connected to Kafka at {bootstrap_servers}.")
+            log(INFO, f"📦 Successfully connected to Kafka at {bootstrap_servers}.")
         except Exception as e:
-            print(f"🔴 Could not connect to Kafka: {e}", file=sys.stderr)
+            log(WARNING, f"🔴 Could not connect to Kafka: {e}")
             Profile._kafka_producer = None
         finally:
             Profile._kafka_initialized = True
 
-    def __call__(self, func):
+    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
-            print(f"▶️  [START] Running step: '{func.__name__}'...")
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            log(INFO, f"▶️  [START] Running step: '{func.__name__}'...")
 
-            # --- Standard Profiling Setup ---
+            # Profiling Setup
             proc = psutil.Process(os.getpid())
             cpu_start = proc.cpu_times()
             mem_start = proc.memory_info()
@@ -85,7 +91,7 @@ class Profile:
                 except Exception:
                     pass
 
-            # --- Deep Profiling Setup ---
+            # Deep Profiling Setup
             if self.tracemalloc_enabled:
                 if not tracemalloc.is_tracing():
                     tracemalloc.start()
@@ -95,12 +101,12 @@ class Profile:
                 profiler = cProfile.Profile()
                 profiler.enable()
 
-            # --- Execute Function ---
+            # Execute Function
             start_time = time.monotonic()
             result = func(*args, **kwargs)
             end_time = time.monotonic()
 
-            # --- Deep Profiling Capture & Report ---
+            # Deep Profiling Capture & Report
             cprofile_stats_str = None
             if self.cprofile_enabled:
                 profiler.disable()
@@ -108,21 +114,21 @@ class Profile:
                 ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
                 ps.print_stats(15) # Report top 15 functions by cumulative time
                 cprofile_stats_str = s.getvalue()
-                print(f"\n--- cProfile for '{func.__name__}' (top 15) ---")
-                print(cprofile_stats_str)
-                print("------------------------------------------\n")
+                log(INFO, f"\n--- cProfile for '{func.__name__}' (top 15) ---")
+                log(INFO, cprofile_stats_str)
+                log(INFO, "------------------------------------------\n")
 
             tracemalloc_stats_list = None
             if self.tracemalloc_enabled:
                 tracemalloc_end_snapshot = tracemalloc.take_snapshot()
                 top_stats = tracemalloc_end_snapshot.compare_to(tracemalloc_start_snapshot, 'lineno')
                 tracemalloc_stats_list = [str(s) for s in top_stats[:10]]
-                print(f"--- tracemalloc for '{func.__name__}' (top 10 diffs) ---")
+                log(INFO, f"--- tracemalloc for '{func.__name__}' (top 10 diffs) ---")
                 for stat in tracemalloc_stats_list:
-                    print(stat)
-                print("-------------------------------------------------\n")
+                    log(INFO, stat)
+                log(INFO, "------------------------------------------\n")
 
-            # --- Standard Profiling Capture ---
+            # Standard Profiling Capture
             duration = end_time - start_time
             cpu_end, mem_end, net_end = proc.cpu_times(), proc.memory_info(), psutil.net_io_counters()
             cpu_delta = (cpu_end.user - cpu_start.user) + (cpu_end.system - cpu_start.system)
@@ -134,9 +140,9 @@ class Profile:
                 gpu_mem_end = pynvml.nvmlDeviceGetMemoryInfo(gpu_handle)
                 gpu_mem_delta = gpu_mem_end.used - gpu_mem_start.used
 
-            print(f"✅ [DONE]  Finished step: '{func.__name__}'. Took {duration:.4f} seconds.")
+            log(INFO, f"✅ [DONE]  Finished step: '{func.__name__}'. Took {duration:.4f} seconds.")
 
-            # --- Kafka Logging ---
+            # Kafka Logging
             if self.kafka_logging and Profile._kafka_producer:
                 task_instance = kwargs.get('ti') or kwargs.get('task_instance')
                 if task_instance:
@@ -152,20 +158,21 @@ class Profile:
                     "run_id": run_id, "namespace": namespace, "step_name": step_name,
                     "duration_s": duration, "cpu_time_s": cpu_delta,
                     "mem_change_bytes": mem_delta, "net_sent_bytes": net_delta_sent,
-                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta
+                    "net_recv_bytes": net_delta_recv, "gpu_mem_change_bytes": gpu_mem_delta,
+                    "deep_profiling_data": {},
                 }
 
                 # Add deep profiling metrics if they were captured
                 if cprofile_stats_str:
-                    payload['cprofile_stats'] = cprofile_stats_str
+                    payload['deep_profiling_data']['cprofile_stats'] = cprofile_stats_str
                 if tracemalloc_stats_list:
-                    payload['tracemalloc_top_10_diff'] = tracemalloc_stats_list
+                    payload['deep_profiling_data']['tracemalloc_top_10_diff'] = tracemalloc_stats_list
 
                 try:
                     key = f"{payload['namespace']}:{payload['run_id']}:{payload['step_name']}".encode('utf-8')
                     Profile._kafka_producer.send(topic, value=payload, key=key)
                 except Exception as e:
-                    print(f"🔴 Failed to send message to Kafka: {e}", file=sys.stderr)
+                    log(WARNING, f"🔴 Failed to send message to Kafka: {e}")
 
             return result
         return wrapper
