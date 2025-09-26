@@ -27,7 +27,7 @@ customConfig:
   sinks:
     loki_sink:
       type: "loki"
-      endpoint: "http://lgtm-loki-gateway.lgtm.svc.cluster.local:80"
+      endpoint: "http://my-lgtm-loki-gateway.lgtm.svc.cluster.local:80"
       inputs: ["kafka_source"]
       labels:
         job: '{{ printf "{{ step_name }}" }}'
