@@ -4,11 +4,14 @@ import pendulum
 
 from airflow.sdk import dag
 from airflow.providers.standard.operators.empty import EmptyOperator
-from src.local.kubernetes.operators.pod import ProfiledKubernetesPodOperator as KubernetesPodOperator
-from src.profile import Profile
+from src.local.kubernetes.operators.pod import (
+    ProfiledKubernetesPodOperator as KubernetesPodOperator,
+)
+from src.profiler import Profile
 from kubernetes.client import models as k8s
 
 profile = Profile(cprofile_enabled=True, tracemalloc_enabled=True)
+
 
 @dag(
     dag_id="c_code_execution_dag",
@@ -37,11 +40,12 @@ def c_k8s_example():
         },
         # Optional: Define resource requests and limits for the pod
         container_resources=k8s.V1ResourceRequirements(
-                requests={"cpu": "100m", "memory": "64Mi", "ephemeral-storage": "1Gi"},
-                limits={"cpu": "200m", "memory": "420Mi", "ephemeral-storage": "2Gi"},
-            ),
+            requests={"cpu": "100m", "memory": "64Mi", "ephemeral-storage": "1Gi"},
+            limits={"cpu": "200m", "memory": "420Mi", "ephemeral-storage": "2Gi"},
+        ),
     )
 
     start >> kpo >> end
+
 
 dag = c_k8s_example()

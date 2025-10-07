@@ -1,5 +1,5 @@
 # airflow-values.yaml
-
+airflowVersion: 3.1.0
 executor: CeleryExecutor,KubernetesExecutor
 
 # Security keys (replace these in production)
