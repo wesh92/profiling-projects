@@ -1,7 +1,8 @@
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
-from src.profile import Profile
+from src.profiler import Profile
 
 profile = Profile(tracemalloc_enabled=True, cprofile_enabled=True)
+
 
 class ProfiledKubernetesPodOperator(KubernetesPodOperator):
     """

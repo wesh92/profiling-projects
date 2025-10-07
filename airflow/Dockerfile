@@ -1,5 +1,5 @@
 # Better version with more efficient layering
-FROM python:3.13-slim-trixie as builder
+FROM python:3.12-slim-trixie as builder
 
 # Install uv first (rarely changes)
 RUN pip install --no-cache-dir uv
@@ -15,7 +15,7 @@ RUN uv pip compile pyproject.toml \
     -o requirements.txt
 
 # Final stage
-FROM apache/airflow:3.1.0-python3.13
+FROM apache/airflow:3.1.0-python3.12
 ENV PYTHONPATH="/opt/airflow/dags/repo/airflow:/opt/airflow/dags:${PYTHONPATH}"
 USER root
 COPY --from=builder /build/requirements.txt /
