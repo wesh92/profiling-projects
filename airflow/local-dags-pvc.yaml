@@ -1,0 +1,31 @@
+# 1. Create a Persistent Volume (PV) that points to a local directory.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: airflow-dags-pv
+spec:
+  capacity:
+    storage: 1Gi # Adjust size if needed
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  hostPath:
+    # This is the path on your local machine (the k3s host node)
+    path: "/home/wes/Documents/projects/work/profiling-projects/airflow/"
+
+---
+# 2. Create a Persistent Volume Claim (PVC) that Airflow will use.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # This name must match the 'existingClaim' value in your values.yaml
+  name: airflow-dags-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 1Gi # Must be less than or equal to the PV size
+  volumeName: airflow-dags-pv

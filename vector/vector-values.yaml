@@ -39,7 +39,7 @@ customConfig:
     timescaledb_sink:
       type: "postgres"
       inputs: ["kafka_source"] # Takes input from the same Kafka source
-      endpoint: "postgres://${PG_USER}:${PG_PASSWORD}@timescaledb.timescale.svc.cluster.local:5450/${PG_DBNAME}"
+      endpoint: "postgres://${PG_USER}:${PG_PASSWORD}@timescaledb.tsdb.svc.cluster.local:5450/${PG_DBNAME}"
       table: "performance_metrics"
 
 service:
